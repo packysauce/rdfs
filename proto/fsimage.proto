@@ -19,7 +19,7 @@ syntax = "proto2";
 option java_package = "org.apache.hadoop.hdfs.server.namenode";
 option java_outer_classname = "FsImageProto";
 
-package hadoop.hdfs.fsimage;
+package hadoop.hdfs;
 
 import "hdfs.proto";
 import "acl.proto";
