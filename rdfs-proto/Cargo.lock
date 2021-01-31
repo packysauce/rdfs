@@ -19,6 +19,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d1d6b8077d27443822a547d1ef816eadd2dc4a75de9105aff614192729cf6d3"
 
 [[package]]
+name = "datanode"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cargo-emit",
+ "protobuf",
+ "protobuf-codegen-pure",
+ "walkdir",
+]
+
+[[package]]
 name = "protobuf"
 version = "2.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -44,17 +55,6 @@ checksum = "e0cc5a64733bf127b466ca734a39ad1b123ac37bfe96c5a340fa6f5393dfd964"
 dependencies = [
  "protobuf",
  "protobuf-codegen",
-]
-
-[[package]]
-name = "rdfs-proto"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cargo-emit",
- "protobuf",
- "protobuf-codegen-pure",
- "walkdir",
 ]
 
 [[package]]
