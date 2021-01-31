@@ -1,4 +1,3 @@
-mod gen;
 
 use anyhow::Context;
 
