@@ -1,4 +1,5 @@
 [workspace]
 members = [
     "rdfs-proto",
+    "rdfs-namenode",
 ]

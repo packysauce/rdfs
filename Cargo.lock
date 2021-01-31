@@ -47,6 +47,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rdfs-namenode"
+version = "0.1.0"
+dependencies = [
+ "rdfs-proto",
+]
+
+[[package]]
 name = "rdfs-proto"
 version = "0.1.0"
 dependencies = [
