@@ -3,3 +3,8 @@ members = [
     "rdfs-proto",
     "rdfs-namenode",
 ]
+
+[profile.release]
+lto = "thin"
+debug = true
+codegen-units = 1
