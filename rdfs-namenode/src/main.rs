@@ -2,13 +2,14 @@
 use std::env;
 
 use anyhow::{Context, Result};
-use async_std::{future, io::prelude::WriteExt, net::TcpListener, task::spawn};
+use async_std::{future, io::{BufRead, Read, prelude::WriteExt}, net::TcpListener, task::spawn};
 use async_std::{
     io::{prelude::BufReadExt, BufReader, BufWriter},
     net::TcpStream,
     stream::StreamExt,
 };
 use fmt::format;
+use rdfs_proto::{NamenodeProtocol::{GetBlocksResponseProto, GetBlocksRequestProto}, services::NamenodeProtocolService};
 use tracing::{Value, debug, error, info, trace_span};
 use tracing::{info_span, Instrument};
 use tracing_futures::WithSubscriber;
