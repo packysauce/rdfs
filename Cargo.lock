@@ -659,6 +659,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rdfs-fsimage"
+version = "0.1.0"
+
+[[package]]
 name = "rdfs-namenode"
 version = "0.1.0"
 dependencies = [

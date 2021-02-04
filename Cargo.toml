@@ -2,6 +2,7 @@
 members = [
     "rdfs-proto",
     "rdfs-namenode",
+    "rdfs-fsimage",
 ]
 
 [profile.release]
