@@ -670,6 +670,7 @@ dependencies = [
  "async-std",
  "async-trait",
  "paw",
+ "protobuf",
  "rdfs-proto",
  "serde",
  "structopt",

@@ -18,10 +18,7 @@ use async_std::{
     stream::StreamExt,
 };
 use fmt::format;
-use rdfs_proto::{
-    services::NamenodeProtocolService,
-    NamenodeProtocol::{GetBlocksRequestProto, GetBlocksResponseProto},
-};
+use rdfs_proto::{NamenodeProtocol::{GetBlocksRequestProto, GetBlocksResponseProto}, RpcHeader::RpcRequestHeaderProto, services::NamenodeProtocolService};
 use tracing::{debug, debug_span, error, info, trace, trace_span, Value};
 use tracing::{info_span, Instrument};
 use tracing_futures::WithSubscriber;
@@ -68,7 +65,7 @@ async fn handshake(stream: &mut TcpStream) -> Result<AuthMode> {
     match &hdr_buf {
         b"hrpc" => {}
         b"GET " => {
-            trace!("snarky http response");
+            //trace!("snarky http response");
             writer
                     .write("HTTP/1.1 301 Moved Permanently\r\nContent-Length: 0\r\nLocation: https://google.com/q=wrong%20port\r\n\r\n".as_bytes())
                     .in_current_span()
@@ -76,7 +73,7 @@ async fn handshake(stream: &mut TcpStream) -> Result<AuthMode> {
             bail!("Somebody tried to cURL me");
         }
         _ => {
-            error!(?hdr_buf, whoops=?String::from_utf8_lossy(&hdr_buf), "bad header");
+            error!(?hdr_buf, whoops=%String::from_utf8_lossy(&hdr_buf), "bad header");
             bail!("Expected b'hrpc', found {:?}", hdr_buf);
         }
     }
@@ -103,6 +100,21 @@ async fn handshake(stream: &mut TcpStream) -> Result<AuthMode> {
 async fn handle_client(mut stream: TcpStream) -> Result<()> {
     info!("connected");
     let _auth = handshake(&mut stream).in_current_span().await?;
+    let rpc_span = info_span!("process_rpc");
+    let _rpc = rpc_span.enter();
+    let mut len_buf = [0u8; 4];
+    stream.read(&mut len_buf).in_current_span().await?;
+    let len = match u32::from_be_bytes(len_buf).try_into() {
+        Ok(s) => s,
+        Err(e) => {
+            error!(error=?e, ?len_buf, whoops=%String::from_utf8_lossy(&len_buf), "bad rpc length");
+            bail!("Invalid u32 {:?}", len_buf);
+        }
+    };
+    trace!(len, ?len_buf, "prepare buffer");
+    let mut buf = vec![0u8; len];
+    stream.read(&mut buf).in_current_span().await?;
+    trace!(read=%buf.len(), "bytes read");
     debug!("goodbye");
     Ok(())
 }
