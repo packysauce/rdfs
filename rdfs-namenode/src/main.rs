@@ -1,5 +1,5 @@
 #![allow(unused_imports)]
-use std::{convert::{TryFrom, TryInto}, env, fmt::Debug, net::SocketAddr, pin::Pin};
+use std::{convert::{TryFrom, TryInto}, env, fmt::Debug, io::Read as StdRead, net::SocketAddr, pin::Pin};
 
 use anyhow::{anyhow, bail, Context, Error, Result};
 use async_std::{
@@ -16,8 +16,8 @@ use async_std::{
 use async_trait::async_trait;
 use fmt::format;
 use protobuf::{CodedInputStream, Message};
-use rdfs_proto::{IpcConnectionContext::{IpcConnectionContextProto, UserInformationProto}, NamenodeProtocol::{GetBlocksRequestProto, GetBlocksResponseProto}, ProtocolInfo::GetProtocolVersionsRequestProto, RpcHeader::RpcRequestHeaderProto, services::NamenodeProtocolService};
-use tracing::{debug, debug_span, error, info, trace, trace_span, Value};
+use rdfs_proto::{IpcConnectionContext::{IpcConnectionContextProto, UserInformationProto}, NamenodeProtocol::{GetBlocksRequestProto, GetBlocksResponseProto}, ProtocolInfo::GetProtocolVersionsRequestProto, RpcHeader::{RPCTraceInfoProto, RpcRequestHeaderProto, RpcResponseHeaderProto}, services::NamenodeProtocolService};
+use tracing::{Value, debug, debug_span, error, field::Visit, info, trace, trace_span, warn};
 use tracing::{info_span, Instrument};
 use tracing_futures::WithSubscriber;
 use tracing_subscriber::{
@@ -106,10 +106,19 @@ struct HrpcServer {
 
 impl Debug for HrpcServer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Hrpc")
+        let mut d = f.debug_struct("HrpcServer");
+        d
             .field("client", &self.client)
-            .field("auth_mode", &self.auth_mode)
-            .finish()
+            .field("auth_mode", &self.auth_mode);
+        if let Some(user) = self.user.as_ref() {
+            if user.has_effectiveUser() {
+                d.field("user.effective", &user.get_effectiveUser());
+            }
+            if user.has_realUser() {
+                d.field("user.real", &user.get_realUser());
+            }
+        }
+        d.finish()
     }
 }
 
@@ -130,26 +139,55 @@ impl HrpcServer {
     async fn run(mut self) -> Result<()> {
         info!("new connection");
         self.next_layer = Some(self.handshake().await?);
+        let rpc_span = info_span!("handle_rpc");
+        let _rpc = rpc_span.enter();
+        while let Ok(msg) = self.read_message::<RpcRequestHeaderProto>().await.context("Reading RPC header") {
+            debug!(?msg, "got header");
+            //dbg!(&msg);
+            dbg!(&msg.callerContext);
+            if msg.has_callerContext() {
+                let context = msg.get_callerContext();
+                debug!(?context, "have context");
+            }
+        }
 
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(err)]
     async fn read_message<T: Message>(&mut self) -> Result<T> {
         let len = read_buf_len(&mut self.reader).in_current_span().await?;
         let mut buf = vec![0u8; len];
         self.reader.read(&mut buf).await?;
+        println!("{}", std::any::type_name::<T>());
+        hexdump::hexdump(&buf);
         let mut decoder = protobuf::CodedInputStream::from_bytes(&buf);
-        decoder.read_message()
+        let result = decoder.read_message()
             .map_err(|e| {
-                error!(kind=std::any::type_name::<T>(), "failed to decode");
-                hexdump::hexdump(&buf);
-                e
+                if buf.is_empty() {
+                    anyhow!("Empty buffer")
+                } else {
+                    hexdump::hexdump(&buf);
+                    anyhow!(e)
+                }
             })
-            .context("Failed to read protobuf")
+            .context("Failed to decode protobuf");
+        let wtf = decoder.read_message::<RPCTraceInfoProto>()
+            .map_err(|e| {
+                if buf.is_empty() {
+                    anyhow!("Empty buffer")
+                } else {
+                    hexdump::hexdump(&buf);
+                    anyhow!(e)
+                }
+            })
+            .context("Failed to decode protobuf");
+        dbg!(&wtf);
+        hexdump::hexdump(&decoder.bytes().filter_map(Result::ok).collect::<Vec<_>>());
+        result
     }
    
-    #[tracing::instrument]
+    #[tracing::instrument(err)]
     async fn handshake(&mut self) -> Result<String> {
         let mut hdr_buf = [0u8; 7];
         self.reader.read(&mut hdr_buf).in_current_span().await?;
@@ -214,7 +252,7 @@ impl HrpcServer {
                 return Ok(ipc_context.get_protocol().to_string())
             } // need context
             call_id if call_id < 0 => {
-                debug!(call_id, "unfamiliar call id");
+                warn!(call_id, "unfamiliar call id");
             }
             call_id => {
                 error!(call_id, "unsupported call id");
