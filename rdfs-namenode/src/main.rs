@@ -16,7 +16,7 @@ use async_std::{
 use async_trait::async_trait;
 use fmt::format;
 use protobuf::{CodedInputStream, Message};
-use rdfs_proto::{IpcConnectionContext::{IpcConnectionContextProto, UserInformationProto}, NamenodeProtocol::{GetBlocksRequestProto, GetBlocksResponseProto}, ProtocolInfo::GetProtocolVersionsRequestProto, RpcHeader::{RPCTraceInfoProto, RpcRequestHeaderProto, RpcResponseHeaderProto}, services::NamenodeProtocolService};
+use rdfs_proto::{IpcConnectionContext::{IpcConnectionContextProto, UserInformationProto}, NamenodeProtocol::{GetBlocksRequestProto, GetBlocksResponseProto}, ProtobufRpcEngine2::RequestHeaderProto, ProtocolInfo::GetProtocolVersionsRequestProto, RpcHeader::{RPCTraceInfoProto, RpcRequestHeaderProto, RpcResponseHeaderProto}, services::NamenodeProtocolService};
 use tracing::{Value, debug, debug_span, error, field::Visit, info, trace, trace_span, warn};
 use tracing::{info_span, Instrument};
 use tracing_futures::WithSubscriber;
@@ -69,31 +69,6 @@ async fn read_buf_len<T: Unpin + ReadExt>(stream: &mut T) -> Result<usize> {
     }
 }
 
-#[tracing::instrument(skip(stream))]
-async fn read_headers(mut stream: &mut TcpStream) -> Result<(RpcRequestHeaderProto, IpcConnectionContextProto)> {
-    let len = read_buf_len(&mut stream).in_current_span().await?;
-    let mut buf = vec![0u8; len];
-    stream.read(&mut buf).await?;
-    trace!(expected=len, read=%buf.len(), "bytes read");
-    let mut decoder = protobuf::CodedInputStream::from_bytes(&buf);
-    let header: RpcRequestHeaderProto = decoder.read_message()
-        .map_err(|e| {
-            error!(kind="RpcRequestHeaderProto", "failed to decode");
-            hexdump::hexdump(&buf);
-            e
-        })
-        .context("Failed to deserialize header")?;
-    let context: IpcConnectionContextProto = decoder.read_message()
-        .map_err(|e| {
-            error!(kind="IpcConnectionContextProto", "failed to decode");
-            hexdump::hexdump(&buf);
-            e
-        })
-        .context("Failed to deserialize context")?;
-    Ok((header, context))
-}
-
-
 struct HrpcServer {
     user: Option<UserInformationProto>,
     client_id: Option<Vec<u8>>,
@@ -141,28 +116,21 @@ impl HrpcServer {
         self.next_layer = Some(self.handshake().await?);
         let rpc_span = info_span!("handle_rpc");
         let _rpc = rpc_span.enter();
-        while let Ok(msg) = self.read_message::<RpcRequestHeaderProto>().await.context("Reading RPC header") {
-            debug!(?msg, "got header");
-            //dbg!(&msg);
-            dbg!(&msg.callerContext);
-            if msg.has_callerContext() {
-                let context = msg.get_callerContext();
-                debug!(?context, "have context");
-            }
+        while let Ok(msg) = self.read_rpc::<RequestHeaderProto>().await.context("Reading RPC header") {
+            debug!(?msg, "got rpc");
         }
 
         Ok(())
     }
 
     #[tracing::instrument(err)]
-    async fn read_message<T: Message>(&mut self) -> Result<T> {
+    async fn read_rpc<T: Message>(&mut self) -> Result<T> {
         let len = read_buf_len(&mut self.reader).in_current_span().await?;
         let mut buf = vec![0u8; len];
         self.reader.read(&mut buf).await?;
-        println!("{}", std::any::type_name::<T>());
-        hexdump::hexdump(&buf);
+        trace!(kind=std::any::type_name::<T>(), "decoding");
         let mut decoder = protobuf::CodedInputStream::from_bytes(&buf);
-        let result = decoder.read_message()
+        let result = decoder.read_message::<RpcRequestHeaderProto>()
             .map_err(|e| {
                 if buf.is_empty() {
                     anyhow!("Empty buffer")
@@ -172,7 +140,7 @@ impl HrpcServer {
                 }
             })
             .context("Failed to decode protobuf");
-        let wtf = decoder.read_message::<RPCTraceInfoProto>()
+        let rpc = decoder.read_message()
             .map_err(|e| {
                 if buf.is_empty() {
                     anyhow!("Empty buffer")
@@ -182,9 +150,8 @@ impl HrpcServer {
                 }
             })
             .context("Failed to decode protobuf");
-        dbg!(&wtf);
-        hexdump::hexdump(&decoder.bytes().filter_map(Result::ok).collect::<Vec<_>>());
-        result
+        trace!(remaining=decoder.bytes().count(), "leftover bytes");
+        rpc
     }
    
     #[tracing::instrument(err)]
