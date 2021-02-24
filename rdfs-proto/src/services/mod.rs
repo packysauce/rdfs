@@ -6,31 +6,33 @@ use crate::{HdfsServer::{VersionRequestProto, VersionResponseProto}, NamenodePro
 macro_rules! async_rpc {
     (;) => {};
     (
-        $(
-            $(#[$outer:meta])*
-            rpc $name:ident($req_type:ident) returns ($resp_type:ident);
-        )+
+        service $trait_name:ident {
+            $(
+                $(#[$outer:meta])*
+                rpc $name:ident($req_type:ident) returns ($resp_type:ident);
+            )+
+        }
     ) => {
         paste! {
+            #[async_trait::async_trait]
+            pub trait $trait_name {
             $(
                 $(#[$outer])*
                 fn [<$name:snake>](req: $req_type) -> anyhow::Result<$resp_type>;
             )+
+            }
         }
     };
 }
 
-#[async_trait::async_trait]
-pub trait NamenodeProtocolService {
-    async_rpc! {
+async_rpc! {
+service NamenodeProtocolService {
     /**
      * Get list of blocks for a given datanode with length
      * of blocks adding up to given size.
      */
     rpc getBlocks(GetBlocksRequestProto) returns(GetBlocksResponseProto);
-    }
 
-    async_rpc! {
     /**
      * Get the current block keys
      */
